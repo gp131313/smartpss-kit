@@ -1,0 +1,4 @@
+# Дистрибутив SmartPSS в репозиторий не кладём — он в релизе (GitHub Releases)
+*.exe
+*.log
+*.bak
