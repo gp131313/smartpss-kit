@@ -29,19 +29,31 @@ if (-not $exe) {
     $inst = Get-ChildItem $Dir -Filter 'General_SMARTPSS*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
   }
   if (-not $inst) { throw 'Не найден ни установленный SmartPSS, ни дистрибутив внутри установщика.' }
-  Write-Output 'Запускаю установку SmartPSS (пройдите мастер Dahua до конца)...'
-  Start-Process $inst -Wait
+  # Ключ /S понимает сам дистрибутив Dahua (проверено 09.11.2026: тихая установка ~11 с,
+  # папка C:\Program Files (x86)\Smart Professional Surveillance System). В «тихом» режиме
+  # мастера быть не должно: раньше здесь всегда открывался мастер, а в silent-сборке он
+  # никем не нажимался, и скрипт падал с «SmartPSS.exe не найден».
+  if ($Silent) {
+    Write-Output 'Тихая установка SmartPSS (дистрибутив Dahua с ключом /S)...'
+    Start-Process $inst -ArgumentList '/S' -Wait
+  } else {
+    Write-Output 'Запускаю установку SmartPSS (пройдите мастер Dahua до конца)...'
+    Start-Process $inst -Wait
+  }
   $exe = Find-SmartPSS
-  if (-not $exe) { throw 'После установки SmartPSS.exe не найден.' }
+  if (-not $exe) { throw 'После установки SmartPSS.exe не найден — дистрибутив не установился (запустите мастер вручную).' }
 }
 Write-Output "SmartPSS: $exe"
 
-# Задача Планировщика с наивысшими правами — запуск без UAC
+# Задача Планировщика с наивысшими правами — запуск без UAC.
+# Имя учётки берём у текущего токена: "$env:USERDOMAIN\$env:USERNAME" в ssh-сессии и под
+# виртуальными учётками не резолвится (0x80070534 «не удалось сопоставить имя с SID»).
+$who = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $a = New-ScheduledTaskAction -Execute $exe -WorkingDirectory (Split-Path $exe)
-$p = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Highest
+$p = New-ScheduledTaskPrincipal -UserId $who -LogonType Interactive -RunLevel Highest
 $s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName $TaskName -Action $a -Principal $p -Settings $s -Force | Out-Null
-Write-Output "Задача '$TaskName' создана"
+Write-Output "Задача '$TaskName' создана для $who"
 
 function Set-TaskShortcut([string]$Path) {
   $d = Split-Path $Path

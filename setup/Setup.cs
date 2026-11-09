@@ -58,9 +58,27 @@ public static class Setup
         Assembly asm = Assembly.GetExecutingAssembly();
         foreach (string name in asm.GetManifestResourceNames())
         {
+            string target = Path.Combine(dir, name);
             using (Stream src = asm.GetManifestResourceStream(name))
-            using (FileStream dst = File.Create(Path.Combine(dir, name)))
+            using (FileStream dst = File.Create(target))
                 src.CopyTo(dst);
+            // install.ps1 лежит в репозитории как UTF-8 без BOM (так его читает home-deploy),
+            // а Windows PowerShell 5.1 без BOM считает файл ANSI: кириллица в строках
+            // рассыпается, кавычки ломаются и скрипт не парсится («Неожиданный токен }»).
+            // Именно поэтому silent-сборка падала за секунду ещё до установки.
+            if (name.EndsWith(".ps1", StringComparison.OrdinalIgnoreCase))
+            {
+                byte[] bytes = File.ReadAllBytes(target);
+                bool hasBom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+                if (!hasBom)
+                {
+                    using (FileStream dst = File.Create(target))
+                    {
+                        dst.Write(new byte[] { 0xEF, 0xBB, 0xBF }, 0, 3);
+                        dst.Write(bytes, 0, bytes.Length);
+                    }
+                }
+            }
         }
         string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"System32\WindowsPowerShell\v1.0\powershell.exe");
         string argLine = "-NoProfile -ExecutionPolicy Bypass -File \"" + Path.Combine(dir, "install.ps1") + "\" -NoFinishBox -Dir \"" + dir + "\" " + psArgs;
